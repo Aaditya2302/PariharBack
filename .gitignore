@@ -1,3 +1,7 @@
 .env
-feedback.xlsx
-Parihar_Feedback/
+node_modules/
+# ✅ Exclude feedback data files - each team member has their own local copy
+data/feedback.xlsx
+data/*.xlsx
+# Keep the data folder structure tracked, but not the actual data
+!data/.gitkeep

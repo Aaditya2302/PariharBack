@@ -16,71 +16,45 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/* ================= EXCEL FILE ================= */
-// Configuration for existing OneDrive Excel file
-const ONEDRIVE_PATH = path.join(__dirname, "..", "..");
-const EXCEL_FILE = path.join(ONEDRIVE_PATH, "Parihar_Feedback", "feedback.xlsx");
-const FEEDBACK_FOLDER = path.dirname(EXCEL_FILE);
+/* ================= FEEDBACK DATA STORAGE ================= */
+const DATA_FOLDER = path.join(__dirname, "data");
+const FEEDBACK_FILE = path.join(DATA_FOLDER, "feedback.xlsx");
 
-// Your existing OneDrive file URL (for reference only)
-const ONEDRIVE_FILE_URL = "https://1drv.ms/x/c/261b1ee4df659396/IQCNwECXyxeWSaAIQ5mIlKWeAZzCWMx2kp9ZZ8SeCLZF5yI?e=cOH1cg";
-
-console.log("📄 Excel file path:", EXCEL_FILE);
-console.log("📁 Feedback folder:", FEEDBACK_FOLDER);
-console.log("🔗 OneDrive URL (reference only):", ONEDRIVE_FILE_URL);
-
-// Function to ensure the local copy exists and is synchronized
-const syncWithOneDrive = () => {
-  // Create feedback folder if it doesn't exist
-  if (!fs.existsSync(FEEDBACK_FOLDER)) {
-    console.log("📁 Creating feedback folder in OneDrive...");
-    fs.mkdirSync(FEEDBACK_FOLDER, { recursive: true });
-    console.log("✅ Feedback folder created successfully!");
-  }
-  
-  // Check if Excel file exists locally
-  if (!fs.existsSync(EXCEL_FILE)) {
-    console.log("⚠️  Local Excel file not found!");
-    console.log("💡 Please ensure your OneDrive is synced or download the file manually");
-    console.log("🔗 OneDrive link:", ONEDRIVE_FILE_URL);
-    console.log("📁 Expected location:", EXCEL_FILE);
+// Initialize feedback storage system
+const initializeFeedbackSystem = () => {
+  try {
+    if (!fs.existsSync(DATA_FOLDER)) {
+      fs.mkdirSync(DATA_FOLDER, { recursive: true });
+    }
     
-    // Create a placeholder file with instructions
-    const workbook = XLSX.utils.book_new();
-    const placeholderData = [{
-      Name: "Setup Required",
-      Email: "admin@example.com",
-      Rating: 5,
-      Message: "Please download the Excel file from the OneDrive link above and place it in this folder",
-      Date: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-    }];
-    
-    const worksheet = XLSX.utils.json_to_sheet(placeholderData);
-    worksheet['!cols'] = [
-      { wch: 20 },
-      { wch: 30 },
-      { wch: 10 },
-      { wch: 60 },
-      { wch: 25 }
-    ];
-    
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Feedback");
-    XLSX.writeFile(workbook, EXCEL_FILE);
-    console.log("📝 Created setup instructions file. Please replace with actual file from OneDrive.");
-  } else {
-    console.log("✅ Local Excel file found and ready for use");
+    if (!fs.existsSync(FEEDBACK_FILE)) {
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet([]);
+      worksheet['!cols'] = [
+        { wch: 15 },
+        { wch: 25 },
+        { wch: 8 },
+        { wch: 40 },
+        { wch: 15 },
+        { wch: 20 }
+      ];
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Feedback");
+      XLSX.writeFile(workbook, FEEDBACK_FILE);
+    }
+  } catch (error) {
+    console.error("Error initializing feedback system:", error.message);
   }
 };
 
-syncWithOneDrive();
+initializeFeedbackSystem();
 
 /*  DATABASE CONNECTION  */
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
-    console.log("✅ MongoDB connected successfully");
+    console.log("MongoDB connected successfully");
   } catch (error) {
-    console.error("❌ MongoDB connection failed:", error.message);
+    console.error("MongoDB connection failed:", error.message);
     process.exit(1);
   }
 };
@@ -94,6 +68,51 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+/*  JWT VERIFICATION MIDDLEWARE  */
+const verifyToken = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: No authorization header"
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: Invalid token format"
+      });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error("ERROR: JWT_SECRET is not set in .env file");
+      return res.status(500).json({
+        success: false,
+        message: "Server configuration error"
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    console.error("Token verification failed:", error.message);
+    return res.status(401).json({
+      success: false,
+      message: error.name === 'TokenExpiredError' 
+        ? "Unauthorized: Token expired. Please log in again."
+        : error.name === 'JsonWebTokenError'
+        ? "Unauthorized: Invalid token"
+        : "Unauthorized: Token verification failed"
+    });
+  }
+};
 
 /*  HEALTH CHECK  */
 app.get("/", (req, res) => {
@@ -180,7 +199,7 @@ app.post("/api/auth/signup", async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("❌ Sign Up Error:", error.message);
+    console.error("Sign Up Error:", error.message);
     res.status(500).json({
       success: false,
       message: "Server error during registration",
@@ -210,11 +229,7 @@ app.get('/api/stats/loggedInUsersCount', async (req, res) => {
  
 
 
-// ✅ Get Profile (Protected)
-app.get('/api/auth/profile', async (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Unauthorized' });
-});
+
 
 
 /*  SIGN IN API  */
@@ -265,6 +280,7 @@ app.post("/api/auth/signin", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    console.log("User signed in successfully:", user.email);
     res.status(200).json({
       success: true,
       message: "Signed in successfully",
@@ -278,7 +294,7 @@ app.post("/api/auth/signin", async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("❌ Sign In Error:", error.message);
+    console.error("Sign In Error:", error.message);
     res.status(500).json({
       success: false,
       message: "Server error during sign in",
@@ -309,12 +325,15 @@ const validateFeedback = (name, email, rating, message) => {
   return errors;
 };
 
-/*  FEEDBACK API  */
-app.post("/api/feedback", (req, res) => {
+/*  FEEDBACK API - PROTECTED WITH AUTH  */
+app.post("/api/feedback", verifyToken, async (req, res) => {
   try {
     const { name, email, rating, message } = req.body;
+    const userId = req.user.userId;
 
-    // ✅ Validate input
+    console.log("Feedback request from:", email, "User ID:", userId);
+
+    // Validate input
     const validationErrors = validateFeedback(name, email, rating, message);
     if (validationErrors.length > 0) {
       return res.status(400).json({
@@ -323,71 +342,68 @@ app.post("/api/feedback", (req, res) => {
       });
     }
 
-    let workbook;
-    let data = [];
+    // Read existing feedback data
+    let workbook = XLSX.utils.book_new();
+    let feedbackData = [];
 
-    // ✅ Read existing data
-    if (fs.existsSync(EXCEL_FILE)) {
+    if (fs.existsSync(FEEDBACK_FILE)) {
       try {
-        workbook = XLSX.readFile(EXCEL_FILE);
+        workbook = XLSX.readFile(FEEDBACK_FILE);
         const sheet = workbook.Sheets["Feedback"];
         if (sheet) {
-          data = XLSX.utils.sheet_to_json(sheet);
+          feedbackData = XLSX.utils.sheet_to_json(sheet);
         }
-      } catch (readError) {
-        console.warn("⚠️ Could not read existing file, creating new one");
-        workbook = XLSX.utils.book_new();
+      } catch (err) {
+        console.error("Failed to read feedback file:", err.message);
       }
-    } else {
-      workbook = XLSX.utils.book_new();
     }
 
-    // ✅ Add new feedback
-    data.push({
+    // Add new feedback entry
+    feedbackData.push({
       Name: name.trim(),
       Email: email.trim(),
       Rating: parseInt(rating),
       Message: message.trim(),
+      "User ID": userId,
       Date: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
     });
 
-    // ✅ Update or create sheet
-    const newSheet = XLSX.utils.json_to_sheet(data);
-    newSheet['!cols'] = [
+    // Update Excel sheet
+    const worksheet = XLSX.utils.json_to_sheet(feedbackData);
+    worksheet['!cols'] = [
       { wch: 15 },
       { wch: 25 },
       { wch: 8 },
       { wch: 40 },
+      { wch: 15 },
       { wch: 20 }
     ];
 
     if (workbook.SheetNames.includes("Feedback")) {
-      workbook.Sheets["Feedback"] = newSheet;
+      workbook.Sheets["Feedback"] = worksheet;
     } else {
-      XLSX.utils.book_append_sheet(workbook, newSheet, "Feedback");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Feedback");
     }
 
-    // ✅ Write file
-    XLSX.writeFile(workbook, EXCEL_FILE);
-    console.log(`✅ Feedback saved from ${email}`);
+    // Save to file
+    XLSX.writeFile(workbook, FEEDBACK_FILE);
+    console.log(`Feedback saved from ${email}`);
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: "Thank you! Your feedback has been saved successfully."
     });
 
   } catch (error) {
-    console.error("❌ Excel Error:", error.message);
-    console.error("Error stack:", error.stack);
-    return res.status(500).json({
+    console.error("Feedback submission error:", error.message);
+    res.status(500).json({
       success: false,
-      message: "Server error: Unable to save feedback. Please try again later.",
-      error: error.message
+      message: "Server error: Unable to save feedback. Please try again."
     });
   }
 });
 
 /*  START SERVER  */
 app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
