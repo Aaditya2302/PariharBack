@@ -18,7 +18,8 @@ app.use(cors({
     'https://www.pariharindia.com',
     'https://pariharindia.com',
     'https://parihar-project.vercel.app',
-    'https://pariharback.onrender.com'
+    'https://pariharback.onrender.com',
+    'http://localhost:5173'
   ],
   credentials: true
 }));
